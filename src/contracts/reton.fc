@@ -1,0 +1,79 @@
+#include "imports/stdlib.fc";
+
+;; Storage variables
+global int balance;
+global int total_rewards;
+global int multiplier;
+
+;; Initialize contract
+() load_data() impure {
+    var ds = get_data().begin_parse();
+    balance = ds~load_uint(64);
+    total_rewards = ds~load_uint(64);
+    multiplier = ds~load_uint(8);
+    ds.end_parse();
+}
+
+() save_data() impure {
+    set_data(begin_cell()
+        .store_uint(balance, 64)
+        .store_uint(total_rewards, 64)
+        .store_uint(multiplier, 8)
+    .end_cell());
+}
+
+;; Getter methods
+int get_balance() method_id {
+    load_data();
+    return balance;
+}
+
+int get_total_rewards() method_id {
+    load_data();
+    return total_rewards;
+}
+
+int get_multiplier() method_id {
+    load_data();
+    return multiplier;
+}
+
+;; Tap to earn rewards
+() tap() impure {
+    load_data();
+    int reward = 1 * multiplier / 10;
+    balance += reward;
+    total_rewards += reward;
+    save_data();
+}
+
+;; Withdraw rewards
+() withdraw(int amount) impure {
+    load_data();
+    throw_if(35, amount > balance);
+    balance -= amount;
+    raw_reserve(0, 4);
+    var msg = begin_cell()
+        .store_uint(0x10, 6) ;; nobounce
+        .store_slice(sender_address())
+        .store_coins(amount)
+        .store_uint(0, 1 + 4 + 4 + 64 + 32 + 1 + 1)
+        .store_uint(0, 32)
+    .end_cell();
+    send_raw_message(msg, 128);
+    save_data();
+}
+
+;; Receive internal message
+() recv_internal(int msg_value, cell in_msg, slice in_msg_body) impure {
+    if (in_msg_body.slice_empty?()) {
+        return ();
+    }
+    int op = in_msg_body~load_uint(32);
+    if (op == 1) {
+        tap();
+    } elseif (op == 2) {
+        int amount = in_msg_body~load_uint(64);
+        withdraw(amount);
+    }
+}
